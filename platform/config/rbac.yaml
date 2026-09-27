@@ -1,0 +1,38 @@
+# Humans get read-only access to their namespace. Changes reach the cluster only through Git and
+# Argo CD, so there is no need for anyone to hold write access, and every change has a commit.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: developer-read-only
+  namespace: demo
+rules:
+  - apiGroups: ["", apps, policy, networking.k8s.io, monitoring.coreos.com]
+    resources:
+      - pods
+      - pods/log
+      - services
+      - endpoints
+      - events
+      - configmaps
+      - deployments
+      - replicasets
+      - poddisruptionbudgets
+      - networkpolicies
+      - servicemonitors
+      - prometheusrules
+    verbs: [get, list, watch]
+  # Deliberately absent: secrets, pods/exec, pods/portforward, and every write verb.
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: demo-developers
+  namespace: demo
+subjects:
+  - apiGroup: rbac.authorization.k8s.io
+    kind: Group
+    name: demo-developers
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: developer-read-only

@@ -1,0 +1,64 @@
+# Admit an image from ghcr.io/prhoguns/ only if it was signed by the devsecops-supply-chain
+# pipeline running on main (keyless: the identity is the workflow, proven by a Fulcio certificate
+# and a Rekor transparency-log entry) and carries a signed SPDX SBOM attestation from the same
+# workflow. An image pushed by hand, from a branch, or by any other repo is rejected.
+apiVersion: policies.kyverno.io/v1
+kind: ImageValidatingPolicy
+metadata:
+  name: verify-image-signatures
+  annotations:
+    policies.kyverno.io/title: Verify image signatures and SBOM attestations
+    policies.kyverno.io/severity: critical
+spec:
+  validationActions: [Deny]
+  failurePolicy: Fail
+  webhookConfiguration:
+    timeoutSeconds: 20
+  evaluation:
+    background:
+      enabled: false
+  autogen:
+    podControllers:
+      # Also check Deployments, StatefulSets, etc. at admission, so a bad spec is rejected when
+      # it is applied instead of silently failing to create pods later.
+      controllers: [deployments, statefulsets, daemonsets, jobs, cronjobs]
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: [v1]
+        operations: [CREATE, UPDATE]
+        resources: [pods]
+    namespaceSelector:
+      # Platform namespaces run third-party charts and are governed separately. Every other
+      # namespace, including new ones, is covered by default.
+      matchExpressions:
+        - key: kubernetes.io/metadata.name
+          operator: NotIn
+          values: [kube-system, kube-public, kube-node-lease, local-path-storage, kyverno, argocd, monitoring]
+  matchImageReferences:
+    - glob: ghcr.io/prhoguns/*
+  validationConfigurations:
+    required: true
+    verifyDigest: true
+    mutateDigest: false
+  attestors:
+    - name: pipeline
+      cosign:
+        keyless:
+          identities:
+            - issuer: https://token.actions.githubusercontent.com
+              subject: https://github.com/prhoguns/devsecops-supply-chain/.github/workflows/pipeline.yml@refs/heads/main
+        ctlog:
+          url: https://rekor.sigstore.dev
+  attestations:
+    - name: sbom
+      intoto:
+        type: https://spdx.dev/Document
+  validations:
+    - expression: >-
+        images.containers.map(image, verifyImageSignatures(image, [attestors.pipeline])).all(e, e > 0)
+      message: image is not signed by the devsecops-supply-chain pipeline on main
+    - expression: >-
+        images.containers.map(image,
+          verifyAttestationSignatures(image, attestations.sbom, [attestors.pipeline])).all(e, e > 0)
+      message: image has no SBOM attestation signed by the devsecops-supply-chain pipeline on main

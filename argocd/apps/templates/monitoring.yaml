@@ -1,0 +1,26 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: monitoring
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+  finalizers: [resources-finalizer.argocd.argoproj.io]
+spec:
+  project: platform
+  sources:
+    - repoURL: https://prometheus-community.github.io/helm-charts
+      chart: kube-prometheus-stack
+      targetRevision: {{ .Values.charts.kubePrometheusStack }}
+      helm:
+        releaseName: kube-prometheus-stack
+        valueFiles: [$repo/platform/monitoring/values.yaml]
+    - repoURL: {{ .Values.repoURL }}
+      targetRevision: {{ .Values.revision }}
+      ref: repo
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: monitoring
+  {{- include "platform.syncPolicy" . | nindent 2 }}
+    # The operator CRDs are too large for client-side apply's last-applied annotation.
+    syncOptions: [CreateNamespace=true, ServerSideApply=true]

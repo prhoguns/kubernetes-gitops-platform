@@ -1,0 +1,28 @@
+# Argo CD for a local cluster: single replicas, UI over port-forward (no ingress).
+configs:
+  params:
+    server.insecure: true
+  cm:
+    # Make Argo CD report the health of child Applications, so sync waves in the app-of-apps
+    # wait for Kyverno and the monitoring CRDs to be healthy before the workloads that need them.
+    resource.customizations.health.argoproj.io_Application: |
+      hs = {}
+      hs.status = "Progressing"
+      hs.message = ""
+      if obj.status ~= nil and obj.status.health ~= nil then
+        hs.status = obj.status.health.status
+        if obj.status.health.message ~= nil then
+          hs.message = obj.status.health.message
+        end
+      end
+      return hs
+    # Kyverno writes policy reports continuously; they are output, not desired state.
+    resource.exclusions: |
+      - apiGroups: ["wgpolicyk8s.io", "reports.kyverno.io"]
+        kinds: ["*"]
+        clusters: ["*"]
+    timeout.reconciliation: 60s
+dex:
+  enabled: false
+notifications:
+  enabled: false

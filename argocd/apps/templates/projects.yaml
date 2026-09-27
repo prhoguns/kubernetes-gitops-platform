@@ -1,0 +1,42 @@
+# platform: cluster-wide components, managed by the platform team.
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: platform
+  namespace: argocd
+spec:
+  description: Cluster-wide platform components (policy engine, monitoring, namespaces, RBAC)
+  sourceRepos:
+    - {{ .Values.repoURL }}
+    - https://kyverno.github.io/kyverno
+    - https://prometheus-community.github.io/helm-charts
+  destinations:
+    - server: https://kubernetes.default.svc
+      namespace: "*"
+  clusterResourceWhitelist:
+    - group: "*"
+      kind: "*"
+---
+# workloads: application teams. Can only deploy from this repo, only into their namespace, and
+# cannot create cluster-scoped objects or change their own quota, limits or network policy
+# defaults.
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: workloads
+  namespace: argocd
+spec:
+  description: Application workloads, confined to their namespaces
+  sourceRepos:
+    - {{ .Values.repoURL }}
+  destinations:
+    - server: https://kubernetes.default.svc
+      namespace: demo
+  clusterResourceWhitelist: []
+  namespaceResourceBlacklist:
+    - group: ""
+      kind: ResourceQuota
+    - group: ""
+      kind: LimitRange
+    - group: rbac.authorization.k8s.io
+      kind: "*"

@@ -1,0 +1,11 @@
+# Workload namespace. Pod Security Admission enforces the "restricted" profile as a second,
+# built-in layer under the Kyverno policies.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: demo
+  labels:
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/enforce-version: latest
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/warn: restricted

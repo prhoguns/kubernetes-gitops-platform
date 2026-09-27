@@ -1,0 +1,47 @@
+# Every container declares CPU and memory requests (so the scheduler can place it) and a memory
+# limit (so one leaking pod cannot exhaust a node). CPU limits are deliberately not required:
+# they cause throttling without protecting other pods.
+apiVersion: policies.kyverno.io/v1
+kind: ValidatingPolicy
+metadata:
+  name: require-resources
+  annotations:
+    policies.kyverno.io/title: Require requests and memory limits
+    policies.kyverno.io/severity: medium
+spec:
+  validationActions: [Deny]
+  failurePolicy: Fail
+  evaluation:
+    background:
+      enabled: true
+  autogen:
+    podControllers:
+      # Also check Deployments, StatefulSets, etc. at admission, so a bad spec is rejected when
+      # it is applied instead of silently failing to create pods later.
+      controllers: [deployments, statefulsets, daemonsets, jobs, cronjobs]
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: [v1]
+        operations: [CREATE, UPDATE]
+        resources: [pods]
+    namespaceSelector:
+      # Platform namespaces run third-party charts and are governed separately. Every other
+      # namespace, including new ones, is covered by default.
+      matchExpressions:
+        - key: kubernetes.io/metadata.name
+          operator: NotIn
+          values: [kube-system, kube-public, kube-node-lease, local-path-storage, kyverno, argocd, monitoring]
+  variables:
+    - name: containers
+      expression: object.spec.containers + object.spec.?initContainers.orValue([])
+  validations:
+    - expression: >-
+        variables.containers.all(c,
+          has(c.resources) && has(c.resources.requests) &&
+          'cpu' in c.resources.requests && 'memory' in c.resources.requests)
+      message: every container must set resources.requests.cpu and resources.requests.memory
+    - expression: >-
+        variables.containers.all(c,
+          has(c.resources) && has(c.resources.limits) && 'memory' in c.resources.limits)
+      message: every container must set resources.limits.memory

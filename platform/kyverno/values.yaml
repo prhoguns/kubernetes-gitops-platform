@@ -1,0 +1,10 @@
+# Single replicas for a local cluster. In production run 3 admission controller replicas so a
+# node failure cannot block all pod creation (the policies fail closed).
+admissionController:
+  replicas: 1
+backgroundController:
+  replicas: 1
+cleanupController:
+  replicas: 1
+reportsController:
+  replicas: 1

@@ -1,0 +1,48 @@
+# Workload images must come from this account's registry and be pinned by digest. A tag can be
+# moved to point at different content; a digest cannot, and it is what the pipeline scanned
+# and signed.
+apiVersion: policies.kyverno.io/v1
+kind: ValidatingPolicy
+metadata:
+  name: restrict-image-source
+  annotations:
+    policies.kyverno.io/title: Restrict image registry and require digests
+    policies.kyverno.io/severity: high
+spec:
+  validationActions: [Deny]
+  failurePolicy: Fail
+  evaluation:
+    background:
+      enabled: true
+  autogen:
+    podControllers:
+      # Also check Deployments, StatefulSets, etc. at admission, so a bad spec is rejected when
+      # it is applied instead of silently failing to create pods later.
+      controllers: [deployments, statefulsets, daemonsets, jobs, cronjobs]
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: [v1]
+        operations: [CREATE, UPDATE]
+        resources: [pods]
+    namespaceSelector:
+      # Platform namespaces run third-party charts and are governed separately. Every other
+      # namespace, including new ones, is covered by default.
+      matchExpressions:
+        - key: kubernetes.io/metadata.name
+          operator: NotIn
+          values: [kube-system, kube-public, kube-node-lease, local-path-storage, kyverno, argocd, monitoring]
+  variables:
+    - name: images
+      expression: >-
+        (object.spec.containers + object.spec.?initContainers.orValue([]) +
+        object.spec.?ephemeralContainers.orValue([])).map(c, c.image)
+  validations:
+    - expression: variables.images.all(i, i.startsWith('ghcr.io/prhoguns/'))
+      messageExpression: >-
+        'images must come from ghcr.io/prhoguns/; not allowed: ' +
+        variables.images.filter(i, !i.startsWith('ghcr.io/prhoguns/')).join(', ')
+    - expression: variables.images.all(i, i.matches('@sha256:[a-f0-9]{64}$'))
+      messageExpression: >-
+        'images must be pinned by digest (@sha256:...), not by tag; not pinned: ' +
+        variables.images.filter(i, !i.matches('@sha256:[a-f0-9]{64}$')).join(', ')

@@ -1,0 +1,8 @@
+# Set by the root Application (Terraform bootstrap). Every child Application tracks the same
+# revision, so CI can deploy and test an unmerged commit end to end.
+repoURL: https://github.com/prhoguns/kubernetes-gitops-platform.git
+revision: main
+
+charts:
+  kyverno: 3.9.1
+  kubePrometheusStack: 91.7.0
