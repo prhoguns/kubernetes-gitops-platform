@@ -9,6 +9,42 @@ provider "helm" {
   }
 }
 
+provider "kubernetes" {
+  config_path    = pathexpand(var.kubeconfig_path)
+  config_context = var.kube_context
+}
+
+# Secrets are created here, once, and never committed to Git. The Grafana chart only references
+# this secret by name (platform/monitoring/values.yaml). Letting the chart generate a password
+# does not work under Argo CD: every render produces a new random value, so the stored secret
+# drifts away from the password Grafana actually initialised with.
+resource "kubernetes_namespace_v1" "monitoring" {
+  metadata {
+    name = "monitoring"
+  }
+
+  lifecycle {
+    # Argo CD adds its own tracking labels and annotations after it takes the namespace over.
+    ignore_changes = [metadata[0].labels, metadata[0].annotations]
+  }
+}
+
+resource "random_password" "grafana_admin" {
+  length  = 32
+  special = false
+}
+
+resource "kubernetes_secret_v1" "grafana_admin" {
+  metadata {
+    name      = "grafana-admin"
+    namespace = kubernetes_namespace_v1.monitoring.metadata[0].name
+  }
+  data = {
+    admin-user     = "admin"
+    admin-password = random_password.grafana_admin.result
+  }
+}
+
 resource "helm_release" "argocd" {
   name             = "argocd"
   namespace        = "argocd"

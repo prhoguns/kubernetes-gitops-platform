@@ -36,7 +36,12 @@ alertmanager:
         memory: 128Mi
 
 grafana:
-  # The chart generates a random admin password into the kube-prometheus-stack-grafana secret.
+  # Admin credentials come from a secret created by the Terraform bootstrap, not from Git and not
+  # from the chart (a chart-generated password changes on every Argo CD render).
+  admin:
+    existingSecret: grafana-admin
+    userKey: admin-user
+    passwordKey: admin-password
   defaultDashboardsTimezone: America/Toronto
   sidecar:
     dashboards:
