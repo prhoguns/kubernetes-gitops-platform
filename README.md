@@ -157,12 +157,11 @@ Each of these was found by the tests or by Argo CD, and each has a commit.
 - **Nobody could log in to Grafana.** The chart generates a random password on every render,
   and Argo CD renders constantly, so the stored secret drifted from the real password. The
   password is now generated once by Terraform and referenced by name.
-- **CI failed on someone else's rate limit.** One run timed out installing Argo CD because the
-  public AWS registry answered `429 Too Many Requests` for the Redis image (CI runners share IP
-  addresses). Retrying was not enough; a later run got "Data limit exceeded" on every attempt. Redis
-  now comes from `mirror.gcr.io`, the identical image pinned by digest, and CI still preloads the
-  chart's images into the nodes with retries. (`kind load` failed on multi-platform images, so the
-  script imports into containerd directly.)
+- **CI failed on someone else's rate limit.** Argo CD's chart pulls Redis from the public AWS
+  registry, which answered CI runners (shared IP addresses) with `429 Too Many Requests` and later
+  "Data limit exceeded". Pre-pulling with retries was not enough, and importing the images into the
+  nodes by hand caused its own containerd error. The fix that stuck: take Redis from `mirror.gcr.io`,
+  the identical official image, pinned by digest.
 - **The test summary under-counted.** Checks on the right of a pipe ran in subshells, so their
   results were lost from the counters. Results now go to a file.
 

@@ -111,14 +111,7 @@ jobs:
           install_only: true
           version: v0.33.0
           kubectl_version: ${{ env.KUBECTL_VERSION }}
-      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
-        with:
-          version: ${{ env.HELM_VERSION }}
-      - name: Create cluster
-        run: kind create cluster --config kind/cluster.yaml --wait 180s
-      - name: Preload Argo CD images (public registries rate-limit shared CI IPs)
-        run: scripts/preload-images.sh
-      - name: Bootstrap Argo CD from this commit
+      - name: Create cluster and bootstrap Argo CD from this commit
         run: scripts/up.sh
       - name: End-to-end tests
         run: tests/e2e.sh
