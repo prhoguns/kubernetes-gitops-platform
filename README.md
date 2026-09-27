@@ -4,8 +4,9 @@ _Status: Built and verified September 26–27, 2026. Every result below came fro
 
 A Kubernetes platform that is run entirely from this repository. Terraform installs one thing,
 Argo CD. Argo CD then installs everything else from Git: a policy engine that only admits images
-signed by my build pipeline, Prometheus and Grafana with alerting, namespaces with quotas and
-read-only RBAC, and the application itself. Nobody runs `kubectl apply`; a change is a commit.
+signed by my build pipeline, Prometheus and Grafana with alerting, Argo Rollouts for canary
+releases, namespaces with quotas and read-only RBAC, and the application itself. Nobody runs
+`kubectl apply`; a change is a commit, and a bad release rolls itself back.
 
 It is the deployment half of a two-repo setup. The build half,
 [devsecops-supply-chain](https://github.com/prhoguns/devsecops-supply-chain), scans, signs and
@@ -23,13 +24,15 @@ publishes the image, then commits its digest here. This repo decides whether tha
 | Containers run non-root, read-only, with no capabilities | `ValidatingPolicy` plus Pod Security `restricted`; bad Deployments are rejected at apply time, not later as failing pods |
 | The app is isolated on the network | Default-deny NetworkPolicy: another namespace cannot reach it, it cannot reach the internet, the load generator can |
 | Developers can look but not change | `kubectl auth can-i` checks: can read pods and logs, cannot read secrets, exec, or edit deployments |
-| Alerting works end to end | 50% injected errors → `DemoApiHighErrorRate` fires in Prometheus and reaches Alertmanager |
-| Drift is corrected | A manual `kubectl set env` is reverted to the Git value; a deleted Service is recreated |
+| Good releases are verified before they reach everyone | Canary at 25%, then a Prometheus analysis of the canary's own error rate; the test release passes and is promoted to 100% |
+| Bad releases roll back on their own | A release with 50% errors fires `DemoApiHighErrorRate` (Prometheus and Alertmanager), fails its analysis and is aborted; the stable pods never run it |
+| Drift is corrected | A manual edit to the Rollout is reverted to the Git value; a deleted Service is recreated |
 
-**Results:** 32/32 end-to-end checks, 22/22 offline policy tests, 13/13 Terraform tests (EKS and
-AKS modules, mocked providers), kubeconform 27/27 manifests valid. Checkov: 130 Terraform and 189
-Kubernetes checks passed, 0 failed; the 14 skipped checks each carry a written reason next to the
-code they apply to.
+**Results:** 35/35 end-to-end checks, 22/22 offline policy tests, 13/13 Terraform tests (EKS and
+AKS modules, mocked providers), kubeconform 32/32 manifests valid. Checkov: 130 Terraform and 103
+Kubernetes checks passed, 0 failed; the skipped checks each carry a written reason next to the code
+they apply to. (Checkov does not read Argo Rollouts' `Rollout` kind, so the demo-api pod spec is
+covered by the Kyverno policies at admission and in the e2e tests instead.)
 
 ## How it fits together
 
@@ -42,7 +45,7 @@ code they apply to.
    → SBOM attestation → SLSA provenance                         ▼
    → commit new digest here ───────────────────────►  Argo CD (app of apps, sync waves)
                                                         wave 0  Kyverno
-                                                        wave 1  policies, kube-prometheus-stack
+                                                        wave 1  policies, kube-prometheus-stack, Argo Rollouts
                                                         wave 2  namespaces, quotas, RBAC, dashboards
                                                         wave 3  demo-api
                                                                 │
@@ -63,7 +66,7 @@ for the cluster.
 
 ```bash
 make up     # kind cluster + Terraform bootstrap; Argo CD installs the rest (~5 minutes)
-make test   # the end-to-end suite (~8 minutes, most of it waiting for the alert to fire)
+make test   # the end-to-end suite (~15 minutes, mostly canary bake and analysis time)
 make ui     # Argo CD on :8080 and Grafana on :3000, prints both admin passwords
 make down   # delete the cluster
 ```
@@ -71,11 +74,29 @@ make down   # delete the cluster
 `REVISION=<branch or commit> make up` deploys something other than `main`; CI uses it to test a
 commit before it merges.
 
-To watch GitOps and alerting together: change `ERROR_RATE` in
-`workloads/demo-api/deployment.yaml` to `"0.2"`, push, and watch Argo CD roll it out and the
-alert fire in Grafana a couple of minutes later. Set it back to `"0"` to resolve it.
+To watch a bad release get caught: change `ERROR_RATE` in `workloads/demo-api/rollout.yaml` to
+`"0.5"` and push. Argo CD syncs it, Argo Rollouts starts one canary pod, the canary's error rate
+crosses 5%, the alert fires, the analysis fails, and every pod goes back to the stable version.
+Argo CD then shows `demo-api` as Degraded until Git is fixed: set it back to `"0"`.
 
-![Grafana: the error spike from an e2e run crossing the 5% alert threshold](docs/img/grafana-demo-api.png)
+![Grafana during an e2e run: the canary's error ratio (green, bottom) climbs to ~37%, the whole
+service stays near 10%, and both drop to zero when the rollout aborts](docs/img/grafana-canary-rollback.png)
+
+### How the canary works
+
+```
+ new version ─► 1 of 4 pods (25%) ─► 30 s bake ─► analysis ─► 50% ─► 30 s ─► 100%
+                                                    │
+                           canary 5xx ratio > 5% on 3 of 4 checks
+                                                    ▼
+                                    abort: canary scaled to 0, stable back to 4 pods
+```
+
+There is no service mesh, so traffic splits by pod count. `demo-api` selects every pod;
+Argo Rollouts narrows `demo-api-canary` to the new pods only, and a second ServiceMonitor scrapes
+that Service as `job="demo-api-canary"`, so the analysis measures the new version on its own
+instead of averaging it away. The analysis waits 60 s so its 1-minute rate window is full, and an
+empty result (the canary served no traffic) counts as a failure: no evidence is not a pass.
 
 ## Layout
 
@@ -86,7 +107,7 @@ infra/modules/aks/     Terraform module: VNet, AKS, Entra ID RBAC, Defender, Log
 argocd/apps/           Helm chart rendering the AppProjects and one Application per component
 policies/              Kyverno policies, and tests/ with offline unit tests for them
 platform/              Kyverno and monitoring values; namespaces, quotas, RBAC, dashboard
-workloads/demo-api/    Deployment, Service, NetworkPolicies, PDB, ServiceMonitor, alerts
+workloads/demo-api/    Rollout (canary), AnalysisTemplate, Services, NetworkPolicies, PDB, ServiceMonitors, alerts
 tests/e2e.sh           End-to-end suite run locally and in CI
 ```
 
@@ -110,6 +131,11 @@ tests/e2e.sh           End-to-end suite run locally and in CI
   reclaimed by throttling.
 - **Humans get read-only access.** Changes go through Git, so write access is unnecessary, and
   every change has an author and a review trail.
+- **Canary by pod count, not a service mesh.** A mesh (Istio, Linkerd) would give exact traffic
+  percentages, but it is a large dependency for one service. With four pods, 25% is one pod, and
+  the analysis looks only at that pod's metrics, which is what decides the outcome.
+- **The alert and the canary share a threshold (5%).** If the canary would page someone at full
+  rollout, it never gets there.
 - **The load generator runs from the same signed image** (`python -m app.loadgen`), so there is
   no exception in the policies for "just a test tool".
 
@@ -146,3 +172,5 @@ Each of these was found by the tests or by Argo CD, and each has a commit.
 - Single replicas for Argo CD and Kyverno, and no ingress or TLS; production would run three
   Kyverno admission replicas because the policies fail closed.
 - Alertmanager routes to a null receiver. Next step: a Slack or email route.
+- Canary traffic is split by pod count; a service mesh or Gateway API traffic router would allow
+  exact percentages and header-based testing.
