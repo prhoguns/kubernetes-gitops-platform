@@ -358,7 +358,7 @@ data:
         {
           "id": 8,
           "type": "timeseries",
-          "title": "Pods: CPU and memory",
+          "title": "Pod CPU (cores)",
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
