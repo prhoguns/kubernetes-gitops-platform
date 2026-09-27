@@ -149,7 +149,11 @@ pod_json p "$SIGNED_IMAGE" demo | mutate 'd["spec"]["hostNetwork"]=True' |
 
 ########################################################################################
 section "3. Network policy"
-eventually 180 test "$(prom_value 'sum(rate(http_requests_total{job="demo-api",path="/api/work"}[1m]))' | cut -d. -f1)" -ge 1 &&
+# On a fresh cluster Prometheus may still be discovering targets here, and rate() needs two scrapes,
+# so allow up to 5 minutes before calling the traffic path broken.
+work_rate() { prom_value 'sum(rate(http_requests_total{job="demo-api",path="/api/work"}[1m]))' | cut -d. -f1; }
+traffic_flowing() { local r; r=$(work_rate); [ -n "$r" ] && [ "$r" -ge 1 ]; }
+eventually 300 traffic_flowing &&
   pass "allowed path: load generator reaches demo-api (>= 1 req/s in Prometheus)" ||
   fail "allowed path: load generator reaches demo-api"
 
