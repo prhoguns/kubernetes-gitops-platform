@@ -19,4 +19,4 @@ resources:
 images:
   - name: demo-api
     newName: ghcr.io/prhoguns/demo-api
-    digest: sha256:525b60711583af39f357f65bb848d96cff8b6a2b3c7d18aa84a7df3f0a3e78b5
+    digest: sha256:3882f818f988f44709ec5e3d80443f9f51a2a913fdaa6a4a999302cb8e446598
