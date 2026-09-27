@@ -56,7 +56,15 @@ resource "helm_release" "root_app" {
             prune    = true
             selfHeal = true
           }
+          syncOptions = ["RespectIgnoreDifferences=true"]
         }
+        # Argo CD adds pre-delete finalizers to child Applications whose charts have pre-delete
+        # hooks (Kyverno does). They are controller-managed, so the root app must not fight them.
+        ignoreDifferences = [{
+          group             = "argoproj.io"
+          kind              = "Application"
+          jqPathExpressions = [".metadata.finalizers[] | select(startswith(\"pre-delete-finalizer.argocd.argoproj.io\"))"]
+        }]
       }
     }
   })]

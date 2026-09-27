@@ -9,9 +9,11 @@ cleanupController:
 reportsController:
   replicas: 1
 
-# The kyverno-api subchart renders `labels: {}` on the policies.kyverno.io CRDs when no labels are
-# set. The API server drops empty maps, so Argo CD would report those CRDs as permanently
-# OutOfSync. Giving them a real label removes the phantom diff without hiding real drift.
+# The kyverno-api subchart renders empty `labels: {}` and `annotations: {}` on the
+# policies.kyverno.io CRDs. The API server drops empty maps, so Argo CD would report those CRDs as
+# permanently OutOfSync. Giving them real values removes the phantom diff without hiding real drift.
 kyverno-api:
   labels:
     app.kubernetes.io/part-of: kyverno
+  annotations:
+    platform.rhoguns.dev/managed-by: argocd
