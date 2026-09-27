@@ -18,13 +18,14 @@ cd "$(dirname "$0")/.."
 # shellcheck source=tests/fixtures.env
 source tests/fixtures.env
 
-PASS=0
-FAIL=0
-FAILED=()
 TEST_NS=policy-test
+# Results go to a file, not shell variables: many checks run on the receiving end of a pipe,
+# i.e. in a subshell, where incrementing a counter would be lost.
+RESULTS=$(mktemp)
+trap 'rm -f "$RESULTS"' EXIT
 
-pass() { PASS=$((PASS + 1)); printf '  \033[32mPASS\033[0m %s\n' "$1"; }
-fail() { FAIL=$((FAIL + 1)); FAILED+=("$1"); printf '  \033[31mFAIL\033[0m %s\n' "$1"; [ -n "${2:-}" ] && printf '       %s\n' "$2"; }
+pass() { echo "PASS $1" >>"$RESULTS"; printf '  \033[32mPASS\033[0m %s\n' "$1"; }
+fail() { echo "FAIL $1" >>"$RESULTS"; printf '  \033[31mFAIL\033[0m %s\n' "$1"; [ -n "${2:-}" ] && printf '       %s\n' "$2"; }
 section() { printf '\n\033[1m%s\033[0m\n' "$1"; }
 
 # Poll a command until it succeeds or the timeout (seconds) passes.
@@ -181,7 +182,8 @@ section "6. Alerting: inject errors, expect DemoApiHighErrorRate"
 kubectl -n argocd patch application root --type merge -p '{"spec":{"syncPolicy":{"automated":null}}}' >/dev/null
 kubectl -n argocd patch application demo-api --type merge -p '{"spec":{"syncPolicy":{"automated":null}}}' >/dev/null
 kubectl -n demo set env deploy/demo-api ERROR_RATE=0.5 >/dev/null
-kubectl -n demo rollout status deploy/demo-api --timeout=120s >/dev/null
+kubectl -n demo rollout status deploy/demo-api --timeout=180s >/dev/null &&
+  pass "error injection rolled out (ERROR_RATE=0.5)" || fail "error injection rolled out"
 eventually 420 alert_firing_in_prometheus DemoApiHighErrorRate &&
   pass "DemoApiHighErrorRate firing in Prometheus (error ratio $(prom_value 'demo_api:request_error_ratio:rate1m' | cut -c1-4))" ||
   fail "DemoApiHighErrorRate firing in Prometheus"
@@ -200,6 +202,8 @@ eventually 300 apps_ready && pass "all applications back to Synced and Healthy" 
 
 kubectl delete namespace "$TEST_NS" --wait=false >/dev/null
 
+PASS=$(grep -c '^PASS' "$RESULTS")
+FAIL=$(grep -c '^FAIL' "$RESULTS")
 printf '\n\033[1m%d passed, %d failed\033[0m\n' "$PASS" "$FAIL"
-for f in "${FAILED[@]}"; do printf '  - %s\n' "$f"; done
+grep '^FAIL' "$RESULTS" | sed 's/^FAIL /  - /'
 [ "$FAIL" -eq 0 ]

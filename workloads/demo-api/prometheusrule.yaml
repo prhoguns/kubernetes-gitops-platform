@@ -6,9 +6,11 @@ spec:
   groups:
     - name: demo-api
       rules:
+        # "or vector(0)": with no errors the 5xx series does not exist yet, and the division would
+        # return nothing instead of 0 (an empty panel, and an alert that can never evaluate).
         - record: demo_api:request_error_ratio:rate1m
           expr: |
-            sum(rate(http_requests_total{job="demo-api", status=~"5.."}[1m]))
+            (sum(rate(http_requests_total{job="demo-api", status=~"5.."}[1m])) or vector(0))
             /
             sum(rate(http_requests_total{job="demo-api"}[1m]))
         - alert: DemoApiHighErrorRate

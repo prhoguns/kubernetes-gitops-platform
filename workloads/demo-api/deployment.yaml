@@ -27,11 +27,17 @@ spec:
         runAsGroup: 65532
         seccompProfile:
           type: RuntimeDefault
-      # Spread the two replicas over both workers so one node failure cannot take the service down.
+      # Spread the replicas over the workers so one node failure cannot take the service down.
+      #  - nodeTaintsPolicy: Honor  ignores nodes the pod cannot run on (the tainted control plane),
+      #    which would otherwise count as an empty zone and block every rollout.
+      #  - matchLabelKeys           spreads each ReplicaSet revision on its own, so the surge pod of
+      #    a rolling update is not blocked by the old revision's pods.
       topologySpreadConstraints:
         - maxSkew: 1
           topologyKey: kubernetes.io/hostname
           whenUnsatisfiable: DoNotSchedule
+          nodeTaintsPolicy: Honor
+          matchLabelKeys: [pod-template-hash]
           labelSelector:
             matchLabels:
               app.kubernetes.io/name: demo-api
