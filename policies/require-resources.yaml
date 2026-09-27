@@ -31,7 +31,7 @@ spec:
       matchExpressions:
         - key: kubernetes.io/metadata.name
           operator: NotIn
-          values: [kube-system, kube-public, kube-node-lease, local-path-storage, kyverno, argocd, monitoring]
+          values: [kube-system, kube-public, kube-node-lease, local-path-storage, kyverno, argocd, argo-rollouts, monitoring]
   variables:
     - name: containers
       expression: object.spec.containers + object.spec.?initContainers.orValue([])

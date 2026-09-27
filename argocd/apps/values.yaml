@@ -6,3 +6,4 @@ revision: main
 charts:
   kyverno: 3.9.1
   kubePrometheusStack: 91.7.0
+  argoRollouts: 2.43.2

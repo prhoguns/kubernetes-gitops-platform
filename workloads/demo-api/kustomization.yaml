@@ -9,7 +9,8 @@ labels:
     includeSelectors: false
 resources:
   - serviceaccount.yaml
-  - deployment.yaml
+  - rollout.yaml
+  - analysis.yaml
   - service.yaml
   - loadgen.yaml
   - networkpolicy.yaml

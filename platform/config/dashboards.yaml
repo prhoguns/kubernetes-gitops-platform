@@ -215,7 +215,7 @@ data:
           "targets": [
             {
               "refId": "A",
-              "expr": "sum(kube_deployment_status_replicas_available{namespace=\"demo\",deployment=\"demo-api\"})",
+              "expr": "sum(kube_pod_status_ready{namespace=\"demo\", condition=\"true\", pod=~\"demo-api-.*\"})",
               "datasource": {
                 "type": "prometheus",
                 "uid": "prometheus"
@@ -390,6 +390,62 @@ data:
                 "type": "prometheus",
                 "uid": "prometheus"
               }
+            }
+          ]
+        },
+        {
+          "id": 9,
+          "type": "timeseries",
+          "title": "Canary vs all pods: error ratio (canary analysis input)",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "x": 0,
+            "y": 20,
+            "w": 24,
+            "h": 8
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percentunit"
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom"
+            }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "legendFormat": "canary",
+              "expr": "(sum(rate(http_requests_total{job=\"demo-api-canary\",status=~\"5..\"}[1m])) or vector(0)) / sum(rate(http_requests_total{job=\"demo-api-canary\"}[1m]))"
+            },
+            {
+              "refId": "B",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "legendFormat": "all pods",
+              "expr": "demo_api:request_error_ratio:rate1m"
+            },
+            {
+              "refId": "C",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "legendFormat": "threshold (5%)",
+              "expr": "vector(0.05)"
             }
           ]
         }

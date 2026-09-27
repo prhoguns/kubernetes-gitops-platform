@@ -1,3 +1,4 @@
+# job="demo-api": all pods, used by the dashboards and alerts.
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:
@@ -6,6 +7,22 @@ spec:
   selector:
     matchLabels:
       app.kubernetes.io/name: demo-api
+      service.rhoguns.dev/role: all
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 15s
+---
+# job="demo-api-canary": only the canary pods during a rollout, used by the canary analysis.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: demo-api-canary
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: demo-api
+      service.rhoguns.dev/role: canary
   endpoints:
     - port: http
       path: /metrics

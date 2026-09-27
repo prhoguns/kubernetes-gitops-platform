@@ -1,9 +1,44 @@
+# demo-api: every pod, stable and canary. This is what clients (the load generator) call, so
+# during a canary the traffic splits roughly by pod count.
 apiVersion: v1
 kind: Service
 metadata:
   name: demo-api
   labels:
     app.kubernetes.io/name: demo-api
+    service.rhoguns.dev/role: all
+spec:
+  selector:
+    app.kubernetes.io/name: demo-api
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+---
+# Argo Rollouts narrows these two to the canary and the stable pods. Prometheus scrapes the canary
+# one separately so the analysis can measure the new version on its own.
+apiVersion: v1
+kind: Service
+metadata:
+  name: demo-api-canary
+  labels:
+    app.kubernetes.io/name: demo-api
+    service.rhoguns.dev/role: canary
+spec:
+  selector:
+    app.kubernetes.io/name: demo-api
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: demo-api-stable
+  labels:
+    app.kubernetes.io/name: demo-api
+    service.rhoguns.dev/role: stable
 spec:
   selector:
     app.kubernetes.io/name: demo-api

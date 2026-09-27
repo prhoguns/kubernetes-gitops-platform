@@ -8,8 +8,11 @@
 #                 reach the internet, and the allowed load-generator path works
 #   4. RBAC       developers can read their namespace and nothing else
 #   5. Metrics    Prometheus scrapes demo-api and has its alert rules loaded
-#   6. Alerting   injecting 50% errors fires DemoApiHighErrorRate in Prometheus and Alertmanager
-#   7. Self-heal  Argo CD reverts manual drift and recreates deleted resources
+#   6. Canary     a good release passes its Prometheus analysis and is promoted to 100%
+#   7. Bad release a release with 50% errors fires DemoApiHighErrorRate (Prometheus and
+#                 Alertmanager), fails its canary analysis and is rolled back automatically;
+#                 the stable pods never run it
+#   8. Self-heal  Argo CD reverts manual drift and recreates deleted resources
 #
 # Usage: tests/e2e.sh            (uses the current kubectl context)
 set -uo pipefail
@@ -98,19 +101,21 @@ apps_ready() {
 import sys, json
 apps = json.load(sys.stdin)["items"]
 names = {a["metadata"]["name"] for a in apps}
-need = {"root", "kyverno", "policies", "monitoring", "platform-config", "demo-api"}
+need = {"root", "kyverno", "policies", "monitoring", "argo-rollouts", "platform-config", "demo-api"}
 ok = need <= names and all(a["status"].get("sync", {}).get("status") == "Synced" and
                            a["status"].get("health", {}).get("status") == "Healthy" for a in apps)
 sys.exit(0 if ok else 1)'
 }
 if eventually 1200 apps_ready; then
-  pass "all 6 applications Synced and Healthy"
+  pass "all 7 applications Synced and Healthy"
 else
-  fail "all 6 applications Synced and Healthy" "$(kubectl -n argocd get applications 2>&1)"
+  fail "all 7 applications Synced and Healthy" "$(kubectl -n argocd get applications 2>&1)"
 fi
-eventually 300 kubectl -n demo rollout status deploy/demo-api --timeout=10s &&
-  pass "demo-api rolled out ($(kubectl -n demo get deploy demo-api -o jsonpath='{.status.readyReplicas}') replicas ready)" ||
-  fail "demo-api rolled out"
+rollout_phase() { kubectl -n demo get rollout demo-api -o jsonpath='{.status.phase}'; }
+rollout_healthy() { [ "$(rollout_phase)" = Healthy ]; }
+eventually 600 rollout_healthy &&
+  pass "demo-api rollout Healthy ($(kubectl -n demo get rollout demo-api -o jsonpath='{.status.availableReplicas}') replicas available)" ||
+  fail "demo-api rollout Healthy" "phase: $(rollout_phase)"
 spread=$(kubectl -n demo get pods -l app.kubernetes.io/name=demo-api -o jsonpath='{.items[*].spec.nodeName}' | tr ' ' '\n' | sort -u | wc -l)
 [ "$spread" -ge 2 ] && pass "demo-api replicas spread across $spread nodes" || fail "demo-api replicas spread across nodes" "on $spread node(s)"
 
@@ -177,33 +182,60 @@ can() { kubectl auth can-i "$@" --as=jane --as-group=demo-developers 2>/dev/null
 ########################################################################################
 section "5. Metrics"
 up=$(prom_value 'count(up{job="demo-api"} == 1)')
-[ "${up:-0}" -ge 2 ] && pass "Prometheus scrapes both demo-api replicas" || fail "Prometheus scrapes both demo-api replicas" "up count: ${up:-none}"
+[ "${up:-0}" -ge 4 ] && pass "Prometheus scrapes all 4 demo-api replicas" || fail "Prometheus scrapes all 4 demo-api replicas" "up count: ${up:-none}"
 rules=$(kubectl get --raw "/api/v1/namespaces/monitoring/services/kube-prometheus-stack-prometheus:http-web/proxy/api/v1/rules" | grep -o 'DemoApi[A-Za-z]*' | sort -u | tr '\n' ' ')
 [ "$(wc -w <<<"$rules")" -eq 3 ] && pass "alert rules loaded: $rules" || fail "alert rules loaded" "$rules"
 
 ########################################################################################
-section "6. Alerting: inject errors, expect DemoApiHighErrorRate"
-# Pause GitOps reconciliation for demo-api so the injected change is not reverted immediately.
+section "6. Canary release: a good version is analysed and promoted"
+# Pause GitOps reconciliation for demo-api so the test's releases are not reverted mid-rollout.
 kubectl -n argocd patch application root --type merge -p '{"spec":{"syncPolicy":{"automated":null}}}' >/dev/null
 kubectl -n argocd patch application demo-api --type merge -p '{"spec":{"syncPolicy":{"automated":null}}}' >/dev/null
-kubectl -n demo set env deploy/demo-api ERROR_RATE=0.5 >/dev/null
-kubectl -n demo rollout status deploy/demo-api --timeout=180s >/dev/null &&
-  pass "error injection rolled out (ERROR_RATE=0.5)" || fail "error injection rolled out"
-eventually 420 alert_firing_in_prometheus DemoApiHighErrorRate &&
-  pass "DemoApiHighErrorRate firing in Prometheus (error ratio $(prom_value 'demo_api:request_error_ratio:rate1m' | cut -c1-4))" ||
+stable_before=$(kubectl -n demo get rollout demo-api -o jsonpath='{.status.stableRS}')
+kubectl -n demo patch rollout demo-api --type merge \
+  -p "{\"spec\":{\"template\":{\"metadata\":{\"annotations\":{\"e2e/release\":\"good-$(date +%s)\"}}}}}" >/dev/null
+latest_analysis_phase() {
+  kubectl -n demo get analysisruns -o jsonpath='{range .items[*]}{.metadata.creationTimestamp}{" "}{.status.phase}{"\n"}{end}' | sort | tail -1 | cut -d' ' -f2
+}
+promoted() { rollout_healthy && [ "$(kubectl -n demo get rollout demo-api -o jsonpath='{.status.stableRS}')" != "$stable_before" ]; }
+eventually 600 promoted &&
+  pass "good release promoted to 100% (canary analysis: $(latest_analysis_phase))" ||
+  fail "good release promoted to 100%" "phase: $(rollout_phase), analysis: $(latest_analysis_phase)"
+
+########################################################################################
+section "7. Bad release: alert fires, canary analysis fails, automatic rollback"
+stable_rs=$(kubectl -n demo get rollout demo-api -o jsonpath='{.status.stableRS}')
+kubectl -n demo patch rollout demo-api --type json \
+  -p '[{"op":"replace","path":"/spec/template/spec/containers/0/env/0","value":{"name":"ERROR_RATE","value":"0.5"}}]' >/dev/null
+canary_running() { [ "$(kubectl -n demo get pods -l app.kubernetes.io/name=demo-api -o jsonpath='{range .items[*]}{.metadata.labels.rollouts-pod-template-hash}{"\n"}{end}' | grep -vcx "$stable_rs")" -ge 1 ]; }
+eventually 180 canary_running && pass "bad release started as a canary (1 of 4 pods)" || fail "bad release started as a canary"
+eventually 300 alert_firing_in_prometheus DemoApiHighErrorRate &&
+  pass "DemoApiHighErrorRate firing in Prometheus while the canary runs" ||
   fail "DemoApiHighErrorRate firing in Prometheus"
 eventually 120 alert_in_alertmanager DemoApiHighErrorRate &&
   pass "alert delivered to Alertmanager" || fail "alert delivered to Alertmanager"
+aborted() { [ "$(kubectl -n demo get rollout demo-api -o jsonpath='{.status.abort}')" = true ]; }
+eventually 300 aborted &&
+  pass "canary analysis failed and the rollout aborted itself (analysis: $(latest_analysis_phase))" ||
+  fail "rollout aborted automatically" "phase: $(rollout_phase), analysis: $(latest_analysis_phase)"
+back_on_stable() {
+  [ "$(kubectl -n demo get rollout demo-api -o jsonpath='{.status.stableRS}')" = "$stable_rs" ] &&
+    ! canary_running &&
+    [ "$(kubectl -n demo get pods -l "rollouts-pod-template-hash=$stable_rs" --field-selector=status.phase=Running -o name | wc -l)" -ge 4 ]
+}
+eventually 180 back_on_stable &&
+  pass "all traffic back on the stable version; stable pods never ran the bad release" ||
+  fail "all traffic back on the stable version"
 
 ########################################################################################
-section "7. Self-healing"
+section "8. Self-healing"
 # Resume reconciliation: the root app restores demo-api's sync policy, which reverts the drift.
 kubectl -n argocd patch application root --type merge -p '{"spec":{"syncPolicy":{"automated":{"prune":true,"selfHeal":true}}}}' >/dev/null
-error_rate_reverted() { [ "$(kubectl -n demo get deploy demo-api -o jsonpath='{.spec.template.spec.containers[0].env[?(@.name=="ERROR_RATE")].value}')" = "0" ]; }
+error_rate_reverted() { [ "$(kubectl -n demo get rollout demo-api -o jsonpath='{.spec.template.spec.containers[0].env[?(@.name=="ERROR_RATE")].value}')" = "0" ]; }
 eventually 300 error_rate_reverted && pass "manual change (ERROR_RATE=0.5) reverted to the value in Git" || fail "manual change reverted to Git"
 kubectl -n demo delete service demo-api >/dev/null
 eventually 180 kubectl -n demo get service demo-api && pass "deleted Service recreated by Argo CD" || fail "deleted Service recreated by Argo CD"
-eventually 300 apps_ready && pass "all applications back to Synced and Healthy" || fail "all applications back to Synced and Healthy"
+eventually 900 apps_ready && pass "all applications back to Synced and Healthy" || fail "all applications back to Synced and Healthy"
 
 kubectl delete namespace "$TEST_NS" --wait=false >/dev/null
 

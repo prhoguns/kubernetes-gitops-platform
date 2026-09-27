@@ -1,0 +1,23 @@
+# Passes if the canary pods' own 5xx ratio stays at or under 5% (the same threshold as the
+# DemoApiHighErrorRate alert). Four measurements, 30 s apart, after a 60 s warm-up so the 1-minute
+# rate window is full. Three failed measurements abort the rollout.
+apiVersion: argoproj.io/v1alpha1
+kind: AnalysisTemplate
+metadata:
+  name: canary-error-rate
+spec:
+  metrics:
+    - name: canary-error-ratio
+      initialDelay: 60s
+      interval: 30s
+      count: 4
+      failureLimit: 2
+      # An empty or NaN result (the canary served no traffic) fails too: no evidence is not a pass.
+      successCondition: len(result) > 0 && result[0] <= 0.05
+      provider:
+        prometheus:
+          address: http://kube-prometheus-stack-prometheus.monitoring.svc:9090
+          query: |
+            (sum(rate(http_requests_total{job="demo-api-canary", status=~"5.."}[1m])) or vector(0))
+            /
+            sum(rate(http_requests_total{job="demo-api-canary"}[1m]))
