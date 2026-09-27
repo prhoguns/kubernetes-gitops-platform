@@ -26,3 +26,10 @@ dex:
   enabled: false
 notifications:
   enabled: false
+redis:
+  image:
+    # The chart pulls Redis from ecr-public, which rate-limits shared CI IP addresses hard enough
+    # to fail bootstraps ("Data limit exceeded"). mirror.gcr.io serves the identical official image
+    # (same digest), pinned here so the content cannot change under the tag.
+    repository: mirror.gcr.io/library/redis
+    tag: 8.6.4-alpine@sha256:2cc044fc5a07c9b701f8f1255a309ae9ad7856e694ac03513bf3648c01e40763

@@ -159,9 +159,10 @@ Each of these was found by the tests or by Argo CD, and each has a commit.
   password is now generated once by Terraform and referenced by name.
 - **CI failed on someone else's rate limit.** One run timed out installing Argo CD because the
   public AWS registry answered `429 Too Many Requests` for the Redis image (CI runners share IP
-  addresses). CI now pulls the chart's images on the runner with retries and imports them into the
-  nodes before bootstrapping. `kind load` itself failed on multi-platform images, so the script
-  imports into containerd directly.
+  addresses). Retrying was not enough; a later run got "Data limit exceeded" on every attempt. Redis
+  now comes from `mirror.gcr.io`, the identical image pinned by digest, and CI still preloads the
+  chart's images into the nodes with retries. (`kind load` failed on multi-platform images, so the
+  script imports into containerd directly.)
 - **The test summary under-counted.** Checks on the right of a pipe ran in subshells, so their
   results were lost from the counters. Results now go to a file.
 
