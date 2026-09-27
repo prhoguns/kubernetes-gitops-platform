@@ -1,0 +1,77 @@
+# Offline unit tests for the validating policies: `kyverno test policies/tests`.
+# (Signature verification needs the registry and Sigstore, so it is covered by tests/e2e.sh.)
+{
+  "apiVersion": "cli.kyverno.io/v1alpha1",
+  "kind": "Test",
+  "metadata": {
+    "name": "validating-policies"
+  },
+  "policies": [
+    "../restrict-container-security.yaml",
+    "../require-resources.yaml",
+    "../restrict-image-source.yaml"
+  ],
+  "resources": [
+    "resources.yaml"
+  ],
+  "results": [
+    {
+      "policy": "restrict-container-security",
+      "resources": [
+        "good",
+        "no-requests",
+        "no-memory-limit",
+        "docker-hub",
+        "tag-not-digest"
+      ],
+      "result": "pass"
+    },
+    {
+      "policy": "restrict-container-security",
+      "resources": [
+        "runs-as-root",
+        "uid-zero",
+        "privilege-escalation",
+        "keeps-capabilities",
+        "writable-rootfs",
+        "root-init-container"
+      ],
+      "result": "fail"
+    },
+    {
+      "policy": "require-resources",
+      "resources": [
+        "good",
+        "runs-as-root",
+        "docker-hub",
+        "tag-not-digest"
+      ],
+      "result": "pass"
+    },
+    {
+      "policy": "require-resources",
+      "resources": [
+        "no-requests",
+        "no-memory-limit"
+      ],
+      "result": "fail"
+    },
+    {
+      "policy": "restrict-image-source",
+      "resources": [
+        "good",
+        "runs-as-root",
+        "no-requests"
+      ],
+      "result": "pass"
+    },
+    {
+      "policy": "restrict-image-source",
+      "resources": [
+        "docker-hub",
+        "tag-not-digest"
+      ],
+      "result": "fail"
+    }
+  ]
+}

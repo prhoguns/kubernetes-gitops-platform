@@ -2,7 +2,7 @@
 # Create the local cluster and hand it to Argo CD. Everything after this comes from Git.
 #   REVISION=<branch|sha> scripts/up.sh   deploy a specific revision (default: main)
 set -euo pipefail
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/.." || exit 1
 
 REVISION=${REVISION:-main}
 CLUSTER=gitops

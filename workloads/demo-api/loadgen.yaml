@@ -4,6 +4,10 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: loadgen
+  annotations:
+    checkov.io/skip1: CKV_K8S_11=CPU limits intentionally not set; requests reserve CPU, limits would only throttle
+    checkov.io/skip2: CKV_K8S_8=no HTTP server to probe; the kubelet restarts the process if it exits
+    checkov.io/skip3: CKV_K8S_9=no HTTP server and receives no traffic, so readiness has no meaning
   labels:
     app.kubernetes.io/name: loadgen
 spec:

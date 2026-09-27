@@ -2,6 +2,9 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: demo-api
+  annotations:
+    # Deliberate: CPU limits throttle the pod without protecting its neighbours (requests do that).
+    checkov.io/skip1: CKV_K8S_11=CPU limits intentionally not set; requests reserve CPU, limits would only throttle
   labels:
     app.kubernetes.io/name: demo-api
 spec:

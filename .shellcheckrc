@@ -1,0 +1,3 @@
+# tests/e2e.sh uses `check && pass || fail` as if/else throughout. That is only unsafe when the
+# middle command can fail, and pass() only appends to a file and prints, so it cannot.
+disable=SC2015

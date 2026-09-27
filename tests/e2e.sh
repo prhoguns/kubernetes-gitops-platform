@@ -14,7 +14,7 @@
 # Usage: tests/e2e.sh            (uses the current kubectl context)
 set -uo pipefail
 
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/.." || exit 1
 # shellcheck source=tests/fixtures.env
 source tests/fixtures.env
 
@@ -76,8 +76,13 @@ mutate() { python3 -c "import sys,json;d=json.load(sys.stdin);$1;print(json.dump
 
 expect_denied() { # description expected-message-fragment  (manifest on stdin)
   local out
-  out=$(kubectl apply --dry-run=server -f - 2>&1)
-  if [ $? -ne 0 ] && grep -q -- "$2" <<<"$out"; then pass "$1"; else fail "$1" "$(head -c 300 <<<"$out")"; fi
+  if out=$(kubectl apply --dry-run=server -f - 2>&1); then
+    fail "$1" "was admitted: $out"
+  elif grep -q -- "$2" <<<"$out"; then
+    pass "$1"
+  else
+    fail "$1" "rejected for a different reason: $(head -c 300 <<<"$out")"
+  fi
 }
 expect_allowed() {
   local out
