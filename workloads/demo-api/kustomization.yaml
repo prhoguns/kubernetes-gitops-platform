@@ -1,0 +1,22 @@
+# demo-api, deployed by digest. The digest line is updated by the supply-chain pipeline in
+# prhoguns/devsecops-supply-chain after the image passes its gates and is signed.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: demo
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: demo-api
+    includeSelectors: false
+resources:
+  - serviceaccount.yaml
+  - deployment.yaml
+  - service.yaml
+  - loadgen.yaml
+  - networkpolicy.yaml
+  - pdb.yaml
+  - servicemonitor.yaml
+  - prometheusrule.yaml
+images:
+  - name: demo-api
+    newName: ghcr.io/prhoguns/demo-api
+    digest: sha256:0000000000000000000000000000000000000000000000000000000000000000

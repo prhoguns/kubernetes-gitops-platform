@@ -1,0 +1,9 @@
+# Local cluster: one control plane and two workers, so scheduling, anti-affinity and
+# NetworkPolicy behave like a real multi-node cluster.
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: gitops
+nodes:
+  - role: control-plane
+  - role: worker
+  - role: worker
